@@ -1,0 +1,81 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodejs-configmap
+data:
+  index.js: |
+    const express = require('express');
+    const app = express();
+
+    app.get('/', (req, res) => {
+      res.send('Welcome to kubernetes native app development! Directly within kubernetes, no external dependencies! test change 4');
+    });
+
+    app.listen(3000, () => {
+      console.log('Server is running on port 3000');
+    });
+  install-express.sh: |
+    #!/bin/bash
+    echo "starting express installation..."
+    npm install express
+    echo "express installation completed"
+  start.sh: |
+    #!/bin/bash
+    cd /app-writable/
+    echo "starting nodejs application..."
+    chmod +x *.sh
+    ./install-express.sh
+    node index.js
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    configmap.reloader.stakater.com/reload: "nodejs-configmap"
+  name: nodejs-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nodejs
+  template:
+    metadata:
+      labels:
+        app: nodejs
+    spec:
+      volumes:
+        - name: app-volume
+          configMap:
+            name: nodejs-configmap
+        - name: app-writable
+          emptyDir: {}
+      initContainers:
+        - name: init-copy
+          image: busybox
+          command:
+            [
+              "sh",
+              "-c",
+              "cp /app/* /app-writable/ && chmod +x /app-writable/*.sh",
+            ]
+          volumeMounts:
+            - name: app-volume
+              mountPath: /app
+              readOnly: true
+            - name: app-writable
+              mountPath: /app-writable
+      containers:
+        - name: nodejs-container
+          image: node:latest
+          command: ["bash", "-c", "/app-writable/start.sh"]
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: "512Mi"
+            requests:
+              cpu: "0.1"
+              memory: "128Mi"
+          volumeMounts:
+            - name: app-writable
+              mountPath: /app-writable
